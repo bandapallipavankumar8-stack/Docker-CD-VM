@@ -11,6 +11,9 @@ pipeline {
         VM_IP        = '3.110.118.236'
         VM_USER      = 'ec2-user'      
         SSH_CREDS_ID = 'vm-ssh-key'    // Matches your Jenkins VM private key ID
+        
+        // New Target Port Configuration
+        TARGET_PORT  = '8090'
     }
 
     stages {
@@ -35,18 +38,19 @@ pipeline {
                             ssh -o StrictHostKeyChecking=no ${VM_USER}@${VM_IP} '
                                 echo "Successfully logged in! Setting up the Docker engine..."
                                 
-                                # 2. Stop and remove the host-level native Nginx to completely free up Port 80
-                                sudo systemctl stop nginx || true
-                                sudo systemctl disable nginx || true
-                                
-                                # 3. Ensure Docker, unzip, and AWS CLI are fully installed on the machine
+                                # 2. Ensure Docker, unzip, and AWS CLI are fully installed on the machine
                                 sudo yum install -y docker unzip awscli --skip-broken
                                 
-                                # 4. Make sure the Docker daemon background service is active and running
+                                # 3. Make sure the Docker daemon background service is active and running
                                 sudo systemctl enable --now docker
                                 
-                                # 5. Give your ec2-user account permissions to handle Docker commands
+                                # 4. Give your ec2-user account permissions to handle Docker commands
                                 sudo usermod -aG docker ${VM_USER} || true
+                                
+                                # 5. Open Port 8090 on the Amazon Linux internal OS firewall
+                                echo "Opening Port ${TARGET_PORT} on local OS firewall..."
+                                sudo firewall-cmd --permanent --add-port=${TARGET_PORT}/tcp 2>/dev/null || true
+                                sudo firewall-cmd --reload 2>/dev/null || true
                                 
                                 # 6. Create an isolated workspace folder inside /tmp
                                 cd /tmp
@@ -89,15 +93,15 @@ EOF
                                 echo "Building fresh Docker image layer..."
                                 sudo docker build -t bookstore-image:latest .
                                 
-                                # 13. Launch your live application inside a fresh container on Port 80
-                                echo "Launching live bookstore container..."
-                                sudo docker run -d -p 80:80 --name bookstore-prod-site --restart always bookstore-image:latest
+                                # 13. Launch your live container on target web port 8090
+                                echo "Launching live bookstore container on Port ${TARGET_PORT}..."
+                                sudo docker run -d -p ${TARGET_PORT}:80 --name bookstore-prod-site --restart always bookstore-image:latest
                                 
                                 # 14. Clean up temporary directory paths from the host system
                                 cd /tmp
                                 rm -rf docker-container-deploy
                                 
-                                echo "Success! Your bookstore is running cleanly inside a Docker container."
+                                echo "Success! Your bookstore is running cleanly inside a Docker container on Port ${TARGET_PORT}."
                             '
                         """
                     }
@@ -108,7 +112,7 @@ EOF
 
     post {
         success {
-            echo 'Pipeline Finished Successfully! Your container is running live at http://3.110.118.236'
+            echo "Pipeline Finished Successfully! Your container is running live at http://3.110.118.236:${TARGET_PORT}"
         }
         failure {
             echo 'Deployment Failed. Please check the console log outputs to troubleshoot the error.'
