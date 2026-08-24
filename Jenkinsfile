@@ -11,9 +11,6 @@ pipeline {
         VM_IP        = '3.110.118.236'
         VM_USER      = 'ec2-user'      
         SSH_CREDS_ID = 'vm-ssh-key'    // Matches your Jenkins VM private key ID
-        
-        // Custom Target Browser Port
-        TARGET_PORT  = '8090'
     }
 
     stages {
@@ -38,7 +35,7 @@ pipeline {
                             ssh -o StrictHostKeyChecking=no ${VM_USER}@${VM_IP} '
                                 echo "Successfully logged in! Managing system services..."
                                 
-                                # 2. Stop host native Nginx to prevent any underlying networking conflicts
+                                # 2. Stop host native Nginx to completely free up public Port 80
                                 sudo systemctl stop nginx || true
                                 sudo systemctl disable nginx || true
                                 
@@ -51,17 +48,15 @@ pipeline {
                                 # 5. Give your user profile permanent rights to manage containers
                                 sudo usermod -aG docker ${VM_USER} || true
                                 
-                                # 6. AGGRESSIVE FIREWALL FIX: Force-open port 8090 on the inner OS layer
-                                echo "Unblocking network channels for port ${TARGET_PORT}..."
-                                sudo systemctl start firewalld || true
-                                sudo firewall-cmd --permanent --add-port=${TARGET_PORT}/tcp || true
+                                # 6. Open Port 80 on the Amazon Linux internal OS firewall
+                                sudo firewall-cmd --permanent --add-port=80/tcp || true
                                 sudo firewall-cmd --reload || true
                                 
                                 # 7. Create an isolated workspace folder inside /tmp
                                 cd /tmp
-                                sudo rm -rf docker-final-deploy
-                                mkdir -p docker-final-deploy
-                                cd docker-final-deploy
+                                sudo rm -rf docker-reversed-deploy
+                                mkdir -p docker-reversed-deploy
+                                cd docker-reversed-deploy
                                 
                                 # 8. Pass your Jenkins AWS keys into the environment session memory
                                 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -80,16 +75,18 @@ pipeline {
                                     mv */index.html . 2>/dev/null || true
                                 fi
                                 
-                                # 11. Create a fresh, dedicated Dockerfile to host your storefront code
-                                echo "Generating custom Nginx container blueprint..."
+                                # 11. Create a specialized Dockerfile that reconfigures Nginx to listen on Port 8090
+                                echo "Generating custom Nginx blueprint listening on Port 8090..."
                                 cat <<EOF > Dockerfile
 FROM nginx:alpine
+# Modify default Nginx config to listen on port 8090 instead of 80
+RUN sed -i "s/listen       80;/listen       8090;/g" /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/
-EXPOSE 80
+EXPOSE 8090
 CMD ["nginx", "-g", "daemon off;"]
 EOF
                                 
-                                # 12. Stop and remove any old running bookstore container to avoid port conflicts
+                                # 12. Stop and remove any old running bookstore container to avoid conflicts
                                 echo "Cleaning out stale containers..."
                                 sudo docker stop bookstore-prod-site || true
                                 sudo docker rm bookstore-prod-site || true
@@ -98,16 +95,16 @@ EOF
                                 echo "Building fresh Docker image layer..."
                                 sudo docker build -t bookstore-image:latest .
                                 
-                                # 14. Launch your live container mapping host port 8090 to internal container port 80
-                                echo "Launching live bookstore container container app on port ${TARGET_PORT}..."
-                                sudo docker run -d -p ${TARGET_PORT}:80 --name bookstore-prod-site --restart always bookstore-image:latest
+                                # 14. Launch container mapping VM Host Port 80 to Internal Container Port 8090
+                                echo "Launching live bookstore container (Host 80 -> Container 8090)..."
+                                sudo docker run -d -p 80:8090 --name bookstore-prod-site --restart always bookstore-image:latest
                                 
                                 # 15. Clean up temporary directory paths from the host system
                                 cd /tmp
-                                rm -rf docker-final-deploy
+                                rm -rf docker-reversed-deploy
                                 
-                                echo "Checking localized socket response on port ${TARGET_PORT}..."
-                                curl -I http://localhost:${TARGET_PORT}
+                                echo "Checking localized socket response on VM port 80..."
+                                curl -I http://localhost:80
                                 
                                 echo "Success! Your container deployment is complete."
                             '
@@ -120,7 +117,7 @@ EOF
 
     post {
         success {
-            echo "Pipeline Finished Successfully! Your container is running live at http://3.110.118.236:${TARGET_PORT}"
+            echo "Pipeline Finished Successfully! Your container is running live at http://3.110.118.236"
         }
         failure {
             echo 'Deployment Failed. Please check the console log outputs to troubleshoot the error.'
