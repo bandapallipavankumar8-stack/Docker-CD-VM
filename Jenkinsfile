@@ -11,10 +11,10 @@ pipeline {
 
         stage('CD: Fetch and Deploy Docker Container') {
             steps {
-                // Uses standard Jenkins Secret Text strings to bypass missing AWS plugin
+                // Change the text inside the single quotes to match your exact Jenkins credential IDs
                 withCredentials([
-                    string(credentialsId: 'AWS_ACCESS_KEY', variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'AWS_SECRET_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    string(credentialsId: 'PUT_YOUR_FIRST_ID_HERE', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'PUT_YOUR_SECOND_ID_HERE', variable: 'AWS_SECRET_ACCESS_KEY')
                 ]) {
                     sshagent(['ec2-user']) {
                         echo 'Connecting securely to Amazon Linux VM: 43.204.219.68...'
