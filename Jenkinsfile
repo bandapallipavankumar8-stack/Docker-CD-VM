@@ -11,7 +11,11 @@ pipeline {
 
         stage('CD: Fetch and Deploy Docker Container') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                // Uses standard Jenkins Secret Text strings to bypass missing AWS plugin
+                withCredentials([
+                    string(credentialsId: 'AWS_ACCESS_KEY', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'AWS_SECRET_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
                     sshagent(['ec2-user']) {
                         echo 'Connecting securely to Amazon Linux VM: 43.204.219.68...'
                         sh '''
@@ -34,8 +38,8 @@ pipeline {
                                 cd docker-reversed-deploy
                                 
                                 # Mount keys dynamically inside session terminal memory
-                                export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
-                                export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+                                export AWS_ACCESS_KEY_ID="'$AWS_ACCESS_KEY_ID'"
+                                export AWS_SECRET_ACCESS_KEY="'$AWS_SECRET_ACCESS_KEY'"
                                 export AWS_DEFAULT_REGION="ap-south-1"
                                 
                                 echo "Downloading package from S3..."
