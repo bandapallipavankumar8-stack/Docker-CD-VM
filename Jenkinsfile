@@ -1,3 +1,26 @@
+pipeline {
+    agent any
+
+    environment {
+        // AWS S3 Storage Details
+        S3_BUCKET    = 'code-version'
+        PACKAGE_NAME = 'bookstore-package.zip'
+        AWS_CREDS_ID = 'aws-credentials-id'
+        
+        // Target Amazon Linux VM Configurations
+        VM_IP        = '43.204.219.68'
+        VM_USER      = 'ec2-user'      
+        SSH_CREDS_ID = 'vm-ssh-key' 
+    }
+
+    stages {
+        stage('CD: Checkout Config') {
+            steps {
+                echo 'Pulling the deployment pipeline configuration...'
+                checkout scm
+            }
+        }
+
         stage('CD: Fetch and Deploy Docker Container') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${AWS_CREDS_ID}", 
@@ -7,7 +30,7 @@
                     sshagent(credentials: ["${SSH_CREDS_ID}"]) {
                         echo "Connecting securely to Amazon Linux VM: ${VM_IP}..."
                         
-                        // CHANGED TO SINGLE QUOTES TO FIX INTERPOLATION FAILURE
+                        // CHANGED TO LITERAL SINGLE QUOTES FOR SHELL SAFETY
                         sh '''
                             ssh -o StrictHostKeyChecking=no ${VM_USER}@${VM_IP} "
                                 echo 'Logged in successfully! Cleaning up old native services...'
@@ -29,7 +52,7 @@
                                 mkdir -p docker-reversed-deploy
                                 cd docker-reversed-deploy
                                 
-                                # Pass credentials safely through the shell environment
+                                # Pass session credentials safely via shell memory
                                 export AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}'
                                 export AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}'
                                 export AWS_DEFAULT_REGION='ap-south-1'
@@ -45,7 +68,7 @@
                                     mv */index.html . 2>/dev/null || true
                                 fi
                                 
-                                # Generate custom Nginx config blueprint
+                                # Generate custom Nginx config blueprint listening internally on Port 8090
                                 cat <<EOF > Dockerfile
 FROM nginx:alpine
 RUN sed -i 's/listen       80;/listen       8090;/g' /etc/nginx/conf.d/default.conf
@@ -78,3 +101,14 @@ EOF
                 }
             }
         }
+    }
+
+    post {
+        success {
+            echo "Pipeline Finished Successfully! Your container is running live at http://43.204.219.68"
+        }
+        failure {
+            echo 'Deployment Failed. Please check the console log outputs to troubleshoot the error.'
+        }
+    }
+}
