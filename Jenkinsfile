@@ -56,23 +56,15 @@ pipeline {
                                     mv */index.html . 2>/dev/null || true
                                 fi
                                 
-                                # FIX: Simplified plain-text layout to eliminate formatting crashes
-                                echo 'Generating streamlined blueprint...'
-                                echo 'FROM nginx:alpine' > Dockerfile
-                                echo 'RUN sed -i \"s/listen       80;/listen       8090;/g\" /etc/nginx/conf.d/default.conf' >> Dockerfile
-                                echo 'COPY index.html /usr/share/nginx/html/' >> Dockerfile
-                                echo 'EXPOSE 8090' >> Dockerfile
-                                echo 'CMD nginx -g \"daemon off;\"' >> Dockerfile
-                                
                                 echo 'Managing container states...'
                                 docker stop bookstore-prod-site || true
                                 docker rm bookstore-prod-site || true
                                 
                                 echo 'Building fresh Docker image layer...'
-                                docker build -t bookstore-image:latest .
+                                docker build --no-cache -t bookstore-image:latest .
                                 
                                 echo 'Launching live bookstore container...'
-                                docker run -d -p 80:8090 --name bookstore-prod-site --restart always bookstore-image:latest
+                                docker run -d -p 80:80 --name bookstore-prod-site --restart always bookstore-image:latest
                                 
                                 cd /tmp
                                 rm -rf docker-reversed-deploy
