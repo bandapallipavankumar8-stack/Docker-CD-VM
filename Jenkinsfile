@@ -8,7 +8,7 @@ pipeline {
         AWS_CREDS_ID = 'aws-credentials-id'  // Matches your Jenkins AWS credentials ID
         
         // Target Amazon Linux VM Configuration Details
-        VM_IP        = '3.110.118.236'
+        VM_IP        = '43.204.219.68'
         VM_USER      = 'ec2-user'      
         SSH_CREDS_ID = 'vm-ssh-key'    // Matches your Jenkins VM private key ID
     }
