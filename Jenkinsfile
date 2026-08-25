@@ -1,18 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        // AWS S3 Storage Details
-        S3_BUCKET    = 'code-version'
-        PACKAGE_NAME = 'bookstore-package.zip'
-        AWS_CREDS_ID = 'aws-credentials-id'
-        
-        // Target Amazon Linux VM Configurations
-        VM_IP        = '43.204.219.68'
-        VM_USER      = 'ec2-user'      
-        SSH_CREDS_ID = 'vm-ssh-key' 
-    }
-
     stages {
         stage('CD: Checkout Config') {
             steps {
@@ -23,17 +11,12 @@ pipeline {
 
         stage('CD: Fetch and Deploy Docker Container') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${AWS_CREDS_ID}", 
-                                                 usernameVariable: 'AWS_ACCESS_KEY_ID', 
-                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    
-                    sshagent(credentials: ["${SSH_CREDS_ID}"]) {
-                        echo "Connecting securely to Amazon Linux VM: ${VM_IP}..."
-                        
-                        // Using safe literal single quotes for shell string security limits
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    sshagent(['ec2-user']) {
+                        echo 'Connecting securely to Amazon Linux VM: 43.204.219.68...'
                         sh '''
-                            ssh -o StrictHostKeyChecking=no ${VM_USER}@${VM_IP} "
-                                echo 'Logged in successfully! Cleaning up old native services...'
+                            ssh -o StrictHostKeyChecking=no ec2-user@43.204.219.68 '
+                                echo "Logged in successfully! Cleaning up old native services..."
                                 
                                 # Stop native Nginx if running to free up port 80
                                 sudo systemctl stop nginx || true
@@ -42,7 +25,7 @@ pipeline {
                                 # Install core runtime dependencies if missing
                                 sudo yum install -y docker unzip awscli --skip-broken
                                 sudo systemctl enable --now docker
-                                sudo usermod -aG docker ${VM_USER} || true
+                                sudo usermod -aG docker ec2-user || true
                                 
                                 # Setup isolated workspace path
                                 cd /tmp
@@ -51,51 +34,45 @@ pipeline {
                                 cd docker-reversed-deploy
                                 
                                 # Mount keys dynamically inside session terminal memory
-                                export AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}'
-                                export AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}'
-                                export AWS_DEFAULT_REGION='ap-south-1'
+                                export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+                                export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+                                export AWS_DEFAULT_REGION="ap-south-1"
                                 
-                                echo 'Downloading package from S3...'
-                                aws s3 cp s3://${S3_BUCKET}/${PACKAGE_NAME} .
+                                echo "Downloading package from S3..."
+                                aws s3 cp s3://code-version/bookstore-package.zip .
                                 
-                                echo 'Extracting application assets...'
-                                unzip -o ${PACKAGE_NAME}
+                                echo "Extracting application assets..."
+                                unzip -o bookstore-package.zip
                                 
                                 # Fallback handling for pathing structures
-                                if [ ! -f 'index.html' ]; then
+                                if [ ! -f "index.html" ]; then
                                     mv */index.html . 2>/dev/null || true
                                 fi
                                 
-                                echo 'Managing container states...'
+                                echo "Managing container states..."
                                 docker stop bookstore-prod-site || true
                                 docker rm bookstore-prod-site || true
                                 
-                                echo 'Building fresh Docker image layer...'
+                                echo "Building fresh Docker image layer..."
                                 docker build --no-cache -t bookstore-image:latest .
                                 
-                                echo 'Launching live bookstore container on host port 80...'
-                                docker run -d -p 80:80 --name bookstore-prod-site --restart always bookstore-image:latest
+                                echo "Launching live bookstore container on host port 80..."
+                                docker run -d -p 80:80 --name bookstore-prod-site --restart always bookstore-image:latest > /dev/null 2>&1 &
+                                
+                                # Give the container a moment to spin up before verifying
+                                sleep 5
+                                
+                                echo "Verifying local web response on port 80..."
+                                curl -I http://localhost:80
                                 
                                 # Clear workspace cache
                                 cd /tmp
                                 rm -rf docker-reversed-deploy
-                                
-                                echo 'Verifying local web response on port 80...'
-                                curl -I http://localhost:80
-                            "
+                            '
                         '''
                     }
                 }
             }
-        }
-    }
-
-    post {
-        success {
-            echo "Pipeline Finished Successfully! Your container is running live at http://43.204.219.68"
-        }
-        failure {
-            echo 'Deployment Failed. Please check the console log outputs to troubleshoot the error.'
         }
     }
 }
